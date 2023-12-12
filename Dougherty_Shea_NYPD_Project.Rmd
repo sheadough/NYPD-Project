@@ -1,0 +1,252 @@
+---
+title: "Is Staten Island the Safest Borough in New York?"
+author: "S.D."
+date: "2023-12-02"
+output:
+  html_document: null
+  pdf_document: default
+---
+
+#### Note: you must Knit as an html file due to the interactive map.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+### Introduction
+
+Are you or someone you know planning a vacation to New York City? Or perhaps considering a move to the big apple, to pursue a career or social opportunity.  
+
+If so, you may be concerned about the safety of New York, and wonder if one neighborhood is safest. In New York neighborhoods are called boroughs. 
+
+According to Google's A.I. algorithms, the safest borough in New York seems to be Staten Island, with a crime index of 47 percent. This means 46 percent of American cities are safer, and 53 percent are more dangerous. But what does it mean when we talk about safety? 
+
+It should be reasonable to assume that more criminal activity in a particular geographical area would generally lead to less personal safety for anyone in that area. It would also be logical that areas with more criminal activity, all things considered on average, would have elevated numbers of shooting incidents. We can attempt to use the number of shooting incidents in a borough, as an indicator for the level of criminal activity, and there for the safety of any random person in that borough at any random time. 
+
+### Clearly Stated Question of Interest
+Our analysis will attempt to answer this question: is Staten Island the safest borough in New York? 
+
+### Data Source and Short Description
+The data we are analyzing is a csv file consisting of 27,312 rows and 21 columns that was obtained from the N.Y.C. OpenData website at data.cityofnewyork.us/public-safety
+
+The csv file has been uploaded to a GitHub repository, so these analyses are completely and independently reproducible, and can be fact checked and peer reviewed. 
+
+The following libraries will need to be installed for compatibility: leaflet, leaflet.extras, tidyverse, lubridate, and MASS. 
+
+
+
+| Data Type          | Column Name            | Description                                                          |
+|-------------------- |----------------------- |----------------------------------------------------------------------|
+| text               | INCIDENT_KEY           | Randomly generated persistent ID for each arrest                      |
+| time stamp         | OCCUR_DATE             | Exact date of the shooting incident                                   |
+| text               | OCCUR_TIME             | Exact time of the shooting incident                                   |
+| text               | BORO                  | Borough where the shooting incident occurred                          |
+| text               | LOC_OF_OCCUR_DESC      | What type of location the shooting incident occurred                   |
+| number             | PRECINCT               | Precinct where the shooting incident occurred                         |
+| number             | JURISDICTION_CODE      | Jurisdiction where the shooting incident occurred. Jurisdiction codes 0(Patrol), 1(Transit), and 2(Housing) represent NYPD whilst codes 3 and more represent non-NYPD jurisdictions |
+| text               | LOC_CLASSFCTN_DESC      |  Location classification                                            |
+| text               | LOCATION_DESC          | Location of the shooting incident                                    |
+| checkbox           | STATISTACAL_MURDER_FLAG | Shooting resulted in the victim’s death which would be counted as a murder |
+| text               | PERP_AGE_GROUP         | Perpetrator’s age within a category                                   |
+| text               | PERP_SEX               | Perpetrator's sex                                                     |
+| text               | PERP_RACE              | Perpetrator's race                                                   |
+| text               | VIC_AGE_GROUP          | Victim’s age within a category                                      |
+| text               | VIC_SEX                | Victim’s sex                                                         |
+| text               | VIC_RACE               | Victim’s race                                                        |
+| text               | X_COORD_CD             | Midblock X-coordinate for New York State Plane Coordinate System, Long Island Zone, NAD 83, units feet (FIPS 3104) |
+| text               | Y_COORD_CD             | Midblock Y-coordinate for New York State Plane Coordinate System, Long Island Zone, NAD 83, units feet (FIPS 3104) |
+| number             | Latitude               | Latitude coordinate for Global Coordinate System, WGS 1984, decimal degrees (EPSG 4326) |
+| number             | Longitude              | Longitude coordinate for Global Coordinate System, WGS 1984, decimal degrees (EPSG 4326) |
+| coordinate         | Lon_Lat                | Longitude and Latitude Coordinates for mapping                       |
+
+### Import and Tidy the Data
+
+We load the libraries we will be using and load the .CSV values into a dataframe.
+
+```{r load}
+library(leaflet)
+library(leaflet.extras)
+library(tidyverse)
+library(lubridate)
+library(MASS)
+
+csv_url <- "https://raw.githubusercontent.com/sheadough/NYPD-Project/main/NYPD_Shooting_Incident_Data__Historic_.csv"
+
+df <- read_csv(csv_url)
+```
+
+Here is a summary of the data:
+
+```{r summary_1}
+summary(df)
+```
+
+Now we check for missing values:
+
+```{r missing_1}
+# get the number of missing data points per column
+missing_values_count <- colSums(is.na(df))
+
+# look at the # of missing points in the columns
+missing_values_count[1:16]
+```
+JURISDICTION_CODE has 2 missing values, this will not affect our analysis. We will leave those empty.
+
+LOC_OF_OCCUR_DESC and LOC_CLASSFCTN_DESC have 14,977 missing values, that's more than half! Let's remove these columns.
+
+PERP_AGE_GROUP, PERP_SEX, AND PERP_RACE all have over 9,300 missing values (over 1/3). Let's remove these columns as well.
+
+```{r drop_1}
+# Specified columns to drop
+columns_to_drop <- c('LOC_OF_OCCUR_DESC', 'LOC_CLASSFCTN_DESC', 'LOCATION_DESC', 'PERP_AGE_GROUP', 'PERP_SEX', 'PERP_RACE', 'X_COORD_CD', 'Y_COORD_CD', 'Lon_Lat')
+
+# Drop the columns
+df <- df[, !(names(df) %in% columns_to_drop)]
+```
+
+Latitude and Longitude each have only 10 missing data points. Lets see if we can delete just the 10 affected rows.
+
+```{r drop_2}
+# Specify columns for which missing values should be considered
+columns_to_check <- c("Latitude", "Longitude")  
+
+# Remove rows with missing values in specified columns
+df <- df[complete.cases(df[, columns_to_check]), ]
+```
+
+Now we rename the existing columns for aesthetical purposes and see the column names now:
+
+```{r rename}
+# Rename remaining columns
+colnames(df) <- c('ID', 'Date', 'Time', 'Borough', 'Precinct', 'Jurisdiction', 
+                  'Murder', 'VicAge', 'VicSex', 'VicRace', 'Latitude', 'Longitude')
+
+# Display a summary
+names(df)
+```
+
+And check our missing values again:
+
+```{r missing_2}
+# get the number of missing data points per column
+missing_values_count <- colSums(is.na(df))
+
+# look at the # of missing points in the columns
+missing_values_count[1:12]
+```
+
+And a summary:
+
+```{r summary_2}
+summary(df)
+```
+
+### Analysis
+
+The first visualization is a temporal distribution of the total number of incidents per year. For that we plot a histogram with each year constituting a bin from 2006 until 2022, the last year with published data:
+
+```{r hist_1}
+if (knitr::opts_knit$get("rmarkdown.pandoc.to") != "pdf") {
+  # Your code for HTML output here
+}
+# Convert 'Date' column to Date format
+df$Date <- as.Date(df$Date, format = "%m/%d/%Y")
+
+# Extract year from 'Date' column
+df$Year <- lubridate::year(df$Date)
+
+# Plot histogram
+histogram_data <- df %>%
+  group_by(Year) %>%
+  summarize(Incidents = n())
+
+# Plotting
+barplot(histogram_data$Incidents, names.arg = histogram_data$Year, 
+        xlab = "Year", ylab = "Number of Incidents",
+        main = "NYPD Shooting Incidents Over the Years",
+        col = "skyblue", border = "black")
+```
+
+During the years 2006 through 2012 the incidents remained above 1,500. The year 2013 saw the continuation of a downward trend started in 2012, and incidents remained below 1,500 until 2020. The NYPD shooting incident count almost doubled from under 1,000 in 2017 to nearly 2,000 in 2020 and remained high for at least the next 3 years. It would be interesting to investigate what occurred that drew the incident counts down for several years until 2020, and why the incident count sharply increased during that year.
+
+Now we want to see how our data distributes spatially. For that we will use a heat map from the leaflet library. It's interactive, so feel free to zoom in and look around!
+
+```{r heatmap}
+# Create a base map
+m_5 <- leaflet() %>%
+  setView(lng = -73.841192, lat = 40.736216, zoom = 10) %>%
+  addTiles(group = "CartoDB Positron")
+
+# Add a heatmap to the base map
+m_5 <- addHeatmap(
+  map = m_5,
+  lng = df$Longitude,
+  lat = df$Latitude,
+  radius = 10
+)
+
+# Display the map
+m_5
+```
+We can see the incident area can be broken up into three main groups. The largest group stretches east of the Hudson River from the NYC border with Yonkers south to Coney Island and east to the JFK International Airport. Staten island comprises a smaller area to the southwest, and an even smaller separate area from Rockaway Beach to Far Rockaway. There is a noticeable gap in the Jamaica Bay Wildlife Refuge and Recreation Area. This makes sense as decreased urban development should contain fewer people for police interactions to occur with. The borough of Manhattan also appears to largely have an absence of shooting incidents, with what appears to be only 1 in Central Park. The areas in and around Saint John Cemetery, Prospect Park, and Queensboro Hill also shows extremely little relative shooting incidents. Parts of Brooklyn, Jamaica, the Bronx, and Emerson Hill on Staten Island have relatively high concentrations of NYPD shooting incidents.
+
+We will use another histogram to help demonstrate the relative incidents across boroughs:
+
+```{r hist_2}
+# Shorten borough names
+df$Short_Borough <- recode(df$Borough, 
+                           'QUEENS' = 'QUEENS', 
+                           'BRONX' = 'BRONX', 
+                           'BROOKLYN' = 'BRKLYN', 
+                           'MANHATTAN' = 'MANHTN', 
+                           'STATEN ISLAND' = 'STATEN')
+
+# Plot shortened boroughs histogram
+histogram_data <- df %>%
+    group_by(Short_Borough) %>%
+    summarize(Incidents = n())
+
+# Plotting
+barplot(histogram_data$Incidents, 
+        names.arg = histogram_data$Short_Borough, 
+        xlab = "Borough", 
+        ylab = "Number of Incidents",
+        main = "Boroughs",
+        col = "blue", 
+        border = "black")
+
+```
+
+Brooklyn has the highest number of incidents, well of 10,000. The Bronx has almost 8,000. Staten Island has the fewest with about 1,000. Manhattan and Queens both had around 4,000 shooting incidents between 2016 and 2022.
+
+### Model
+
+Does the borough in which the shooting incident occurred in have a correlation to whether or not the shooting results in a homicide? To attempt to determine this we will deploy a logistic regression model:
+
+```{r model}
+
+# Create a logistic regression model
+model <- glm(Murder ~ Borough, data = df, family = binomial(link = "logit"))
+
+# Summarize the model
+summary(model)
+
+
+```
+
+### Conclusion
+
+Our analysis of the data seems to support the original hypothesis that Staten Island is the safest borough in New York City. This borough has the fewest total number of incidents occurring in the data, and showed lighter relative activity on the heatmap. Consequentially it seems to suggest that, at least historically, Brooklyn and the Bronx could be the most susceptible to NYPD shooting incidents, and therefore considered "most dangerous."
+
+What about the correlation between the borough a shooting incident occurs in and whether or not it results in a homicide? The model results indicate the borough with the lowest shooting/murder correlation could be Brooklyn, with a coefficient close to zero. However, the p-value shows a low statistical significance. Manhattan shows the highest correlation between shootings and death, with shootings the least likely to result in death. The p-value here shows strong statistical significance suggesting the interpretation should be trusted.
+
+### Bias
+
+I have made an endeavor not to allow any personal bias to affect these analyses. Although it is reasonable to assume there is bias, the numbers have been presented as reported, and no subjective inferences have been made. It is important to note that the data is not based on absolute occurrences, but reported occurrences. There could be discrepancies in how information is obtained and reported across the different boroughs. Any bias in the analysis is hoped to be a result of bias in the original obtaining and reporting of the data points. Given that our analysis supports the original conclusion that was obtained by an independent source it seems that perhaps the bias may have been minimized.
+
+```{r info}
+sessionInfo()
+```
+
+#Use set eval = FALSE to skip a chunk
+
+ <http://rmarkdown.rstudio.com>.
